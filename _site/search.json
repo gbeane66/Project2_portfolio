@@ -1,0 +1,30 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Portfolio Project 2: Image classification using FastAI",
+    "section": "",
+    "text": "The purpose of this project is to familiarise myself with the fastai python package. I will build a simple cat and dog classifier and then a model that can classify all breeds."
+  },
+  {
+    "objectID": "index.html#goal",
+    "href": "index.html#goal",
+    "title": "Portfolio Project 2: Image classification using FastAI",
+    "section": "",
+    "text": "The purpose of this project is to familiarise myself with the fastai python package. I will build a simple cat and dog classifier and then a model that can classify all breeds."
+  },
+  {
+    "objectID": "index.html#step-1.0",
+    "href": "index.html#step-1.0",
+    "title": "Portfolio Project 2: Image classification using FastAI",
+    "section": "Step 1.0",
+    "text": "Step 1.0\nFirst, we need to import the FastAI package\n\nfrom fastai.vision.all import *\n\nThen we want to dowload a dataset of images - in this case labelled cats and dogs.\n\npath = untar_data(URLs.PETS)\n\nWhat is inside this dataset?\n\npath.ls()\n\n(#2) [Path('/home/gbea0001/.fastai/data/oxford-iiit-pet/annotations'),Path('/home/gbea0001/.fastai/data/oxford-iiit-pet/images')]\n\n\nHow many files are in the dataset?\n\nfiles = get_image_files(path/\"images\")\nlen(files)\n\n7390\n\n\nLet’s define an easy label function\n\ndef label_func(f):\n  return f[0].isupper()\n\nGreat! Now we want to stick all of our data into a DataLoader object so that we can begin the process of training our model.\n\ndls = ImageDataLoaders.from_name_func(path, files, label_func, item_tfms=Resize(224))\n\nOK, now let’s just take a moment to see that the images are all loaded into the DataLoader object properly:\n\ndls.show_batch()\n\n\n\n\nLooking good! We are now ready to try training a model. We are going to use an old favourite that works quite well while also being quite small - the ResNet34 model.\n\nlearn = vision_learner(dls, resnet34, metrics=error_rate)"
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "About this site"
+  }
+]

@@ -1,5 +1,5 @@
 ---
-title: "Portfolio Project 1: Predicting water potability"
+title: "Portfolio Project 2: Image classification using FastAI"
 execute: 
   echo: true
 
@@ -10,343 +10,58 @@ format:
       light: cosmo
       dark: [cosmo, theme_dark_custom.scss]
     code-link: true
-    code-fold: true
+    code-fold: false
 engine: python3
 ---
 
 ## Goal
-The purpose of this project is to use machine learning to determine whether water is safe for human consumption based on a range of different metrics.
+The purpose of this project is to familiarise myself with the `fastai` python package. I will build a simple cat and dog classifier and then a model that can classify all breeds.
 
-## 💧 Step 1.0 | EDA
-
-To begin with let's load the data as a polars DataFrame. Why use the Polars package and not the Pandas package? Speed. The Polars package is much faster than Pandas and, while this is not really a factor in this project owing to the small size of the dataset, it might be useful to familiarise myself with any differences in polars now. In any case,
-
-### Step 1.1 | Import libraries
+## Step 1.0
+First, we need to import the `FastAI` package
 ```{python}
-
-# Import packages for data manipulation
-import polars as pl
-import numpy as np
-
-# Import packages for data visualization
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
-from termcolor import colored
-
-# Import packages for data preprocessing
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import GridSearchCV, train_test_split, PredefinedSplit
-
-
-# Import packages for data modeling
-from sklearn.svm import SVC
-from sklearn import metrics
-from sklearn.metrics import accuracy_score, precision_score, recall_score,f1_score
-
-# Import four methods for ML
-from sklearn.linear_model import LogisticRegression
-
-from sklearn.tree import DecisionTreeClassifier
-
-from sklearn.ensemble import RandomForestClassifier
-
-from xgboost import XGBClassifier
-from xgboost import plot_importance
+from fastai.vision.all import *
 ```
-
-### Step 1.2 | Load Data
-```{python}
-data = pl.read_csv('water_potability.csv')
-```
-
-### Step 1.3 | View Data
-```{python}
-data.head()
-```
-
-OK, so there are 10 fields in the DataFrame (`pH`,`Hardness`,`Solids`, `Chloramines`,`Sulfate`,`Conductivity`,`Organic Carbon`,`Trihalomethanes`,`Turbidity` and `Potability`). Of these, `Potability` is the target variable (the one we are trying to predict) and it is *binary* - it can either be **potable** (1) or **not-potable** (0). The other 9 fields are all float values. 
-
-Let's now have an overview of the fields in terms of `nulls` and various other statistics.
-```{python}
-data.describe()
-```
-
-Based on the statistical overview of the fields, the things that jump out at me are:
-
-1) `pH`, `Sulfate` and `Trihalomethanes` all have significant numbers of `null` values. These will have to be either dropped or filled.
-2) Other fields look reasonable, though the range of pH (from 0.0 to 14.0) while physically valid is outrageous. This means some of the tested water sources were extremely acidic (pH 0.0) or extremely basic (pH 14.0).
-
-Are any of the fields obviously correlated with each other? We can do a quick check of this using a simple pairplot.
-```{python}
-sns.pairplot(data.to_pandas(), hue='Potability', corner=True, palette='Greens')
-plt.show()
-```
-
-Another way of showing the same thing
-```{python}
-fig, ax = plt.subplots(figsize=(8,6))
-sns.heatmap(data.to_pandas().corr(),annot=True,cmap='Greens',ax=ax)
-plt.title("Correlation Matrix")
-plt.show()
-```
-
-There does not seem to be any correlation between any of the fields - no obvious linear relationship is apparrent in the correlation plots.
-
-## Step 2.0 | Pre-process data 
-
-Now that we know a little bit more about our data, let's deal with some problems that we identified in Step 1. Namely, what do we do about the null values?
-
-If we look at the percentage of each column that has null counts
-```{python}
-print('Percentage(%) of nulls in each column: \n')
-
-print(data.to_pandas().isna().sum()/len(data)*100)
-```
-
-we see that for fields `pH` and `Sulfate` the fraction that are null is significant. We could simply drop each row that has a null value, but this is quite wasteful and might introduce unwanted artifacts to the modelling.
-
-Instead, we can replace any null value with the median value for that field. Before we do that though, it might be good to just check that there is no difference in the median value for the `pH`,`Sulfate` and `Trihalomethane` fields for potable vs non-potable water.
+Then we want to dowload a dataset of images - in this case labelled cats and dogs.
 
 ```{python}
-import pandas as pd
-data2 = data.to_pandas()
-print('Median for Non-Potable water')
-data2[data2.Potability==0][['ph','Sulfate','Trihalomethanes']].median()
+path = untar_data(URLs.PETS)
 ```
+
+What is inside this dataset?
+```{python}
+path.ls()
+```
+
+How many files are in the dataset?
+```{python}
+files = get_image_files(path/"images")
+len(files)
+```
+
+Let's define an easy label function
+```{python}
+def label_func(f):
+  return f[0].isupper()
+```
+
+Great! Now we want to stick all of our data into a `DataLoader` object so that we can begin the process of training our model.
 
 ```{python}
-print('Median for Potable water')
-data2[data2.Potability==1][['ph','Sulfate','Trihalomethanes']].median()
+dls = ImageDataLoaders.from_name_func(path, files, label_func, item_tfms=Resize(224))
 ```
 
-The median value for the field which contain null counts doesn't seem to be different depending on whether the water is potable or not.
-
-Right, let's replace the nulls with the median values
+OK, now let's just take a moment to see that the images are all loaded into the `DataLoader` object properly:
 ```{python}
-for field in ['ph','Sulfate','Trihalomethanes']:
-  data2[field] = data2[field].fillna(value=data2[field].median())
-```
-```{python}
-nulls = data2.isna().sum().sum()
-print(nulls)
+dls.show_batch()
 ```
 
-It worked! All missing values have been replaced with the field mean. We can now move on to normalisation.
-
-### Step 2.1 | Normalisation
-
-The target field is `Potability`. We need to move the predictor fields to a variable `X` and the target to `y`.
+Looking good! We are now ready to try training a model. We are going to use an old favourite that works quite well while also being quite small - the `ResNet34` model.
 
 ```{python}
-X = data2.drop(columns='Potability')
-y = data2['Potability'] 
-```
-
-Now we want to scale with `MinMaxScaler` so values in the preidctor fields are mapped to the range **[0,1]**.
+learn = vision_learner(dls, resnet34, metrics=error_rate)
+``` 
 
 ```{python}
-scaler = MinMaxScaler(feature_range=(0,1))
-df = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
-df.describe().loc[['min','mean','std','max']].T.style.background_gradient(axis=1)
+learn.lr_find()
 ```
-Great! It seems that all of the predictor fields have been normalised.
-
-## Step 3.0 | Modelling
-
-First let's split our data into a test and a train set.
-
-```{python}
-X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0, test_size=0.2)
-```
-
-Let's creat a function to compare the results of modelling.
-
-```{python}
-def plot_result(y_pred) :
-    '''
-    1) Plot a Confusion Matrix
-    2) Plot a Classification Report for each model
-    '''
-    fig, ax = plt.subplots(1, 2, figsize=(15, 4))
-    fig.tight_layout()
-    #Left axis: Confusion Matrix
-    cm = metrics.confusion_matrix(y_test, y_pred)
-    ax[0]=sns.heatmap(cm, cmap='Blues', annot=True, fmt='', linewidths=0.5, ax=ax[0])
-    ax[0].set_xlabel('Prediced labels', fontsize=18)
-    ax[0].set_ylabel('True labels', fontsize=18)
-    ax[0].set_title('Confusion Matrix', fontsize=25)
-    ax[0].xaxis.set_ticklabels(['0', '1'])
-    ax[0].yaxis.set_ticklabels(['0', '1'])
-
-    # Right axis: Classification Report
-    cr = pd.DataFrame(metrics.classification_report(y_test, y_pred, digits=3, output_dict=True)).T
-    cr.drop(columns='support', inplace=True)
-    ax[1] = sns.heatmap(cr, cmap='Blues', annot=True, fmt='0.3f', linewidths=0.5, ax=ax[1])
-    ax[1].xaxis.tick_top()
-    ax[1].set_title('Classification Report', fontsize=25)
-    plt.show()
-```
-
-### Step 3.1 | Logistic Regression
-
-Let's start with a very simple model.
-
-```{python}
-# a dictionary to define parameters to test in algorithm
-parameters = {
-    'C' : [0.001, 1, 1000],
-    'class_weight' : ['balanced', None],
-    'solver' : ['liblinear', 'sag'],
-    'penalty' : ['l2'],
-    'verbose': [0],
-    'max_iter': [100000]
-}
-
-lr = LogisticRegression()
-grid = GridSearchCV(estimator=lr, param_grid=parameters, verbose=0, cv=5)
-
-lr_cv = grid.fit(X_train, y_train);
-
-
-print(colored('Tuned hyper parameters :\n{}'.format(lr_cv.best_params_), 'blue'))
-```
-
-```{python}
-lr = LogisticRegression(**lr_cv.best_params_).fit(X_train, y_train)
-
-y_pred_lr = lr.predict(X_test)
-
-lr_score = round(lr.score(X_test, y_test), 3)
-print(colored('LogisticRegression Score : {}'.format(lr_score), 'green'))
-```
-```{python}
-plot_result(y_pred_lr)
-```
-Seems OK, but let's try some other models and see if we can do better!
-
-### Step 3.2 | XGBoost
-One model that often forms quite well is `XGBoost`, let's give it a try.
-```{python}
-# Instantiate the XGBoost classifier
-xgb = XGBClassifier(objective='binary:logistic',random_state=0)
-
-# Create a dictionary of hyperparameters to tune
-
-parameters = {"max_depth":[5],
-            "min_child_weight":[1],
-             "learning_rate":[0.2,0.5],
-             "n_estimators":[5],
-             "subsample":[0.6],
-             "colsample_bytree":[0.6]
-            }
-
-# Define a dictionary of scoring metrics to capture
-xgb_scoring = ["accuracy","precision","recall","f1"]
-
-# Instantiate the GridSearchCV object
-xgb_cv = GridSearchCV(xgb, parameters, scoring=xgb_scoring, cv=5, refit='f1')
-
-xgb_cv.fit(X_train, y_train)
-
-xgb_cv.best_params_
-```
-
-```{python}
-xgb = XGBClassifier(**xgb_cv.best_params_).fit(X_train, y_train)
-
-y_pred_xgb = xgb.predict(X_test)
-
-xgb_score = round(xgb.score(X_test, y_test), 3)
-print(colored('XGB Score : {}'.format(xgb_score), 'green'))
-```
-
-```{python}
-plot_result(y_pred_xgb)
-```
-Better than `LogisticRegression` but I still think we can do better.
-
-### Step 3.3 | SVC
-
-```{python}
-parameters = {
-    'C' : [1e-6,0.0001,1,10,100,300,1000],
-    'gamma' : [1e-6,0.0001,1,10,100],
-}
-
-
-
-svc = SVC()
-svc_cv = GridSearchCV(estimator=svc, param_grid=parameters, cv=30).fit(X_train, y_train)
-
-
-
-print('Tuned hyper parameters : ', svc_cv.best_params_)
-print('accuracy : ', svc_cv.best_score_)
-```
-
-```{python}
-svc = SVC(**svc_cv.best_params_).fit(X_train, y_train)
-
-y_pred_svc = svc.predict(X_test)
-
-svc_score = round(svc.score(X_test, y_test), 3)
-print(colored('SVC Score : {}'.format(svc_score), 'green'))
-```
-
-```{python}
-plot_result(y_pred_svc)
-```
-
-The worst yet, let's try an old favourite `RandomForest`.
-
-### Step 3.4 | RandomForest
-
-```{python}
-parameters = {
-    'n_estimators' : [1000],
-    'criterion' : ['log_loss'],
-    'max_features' : ['sqrt'],
-    'n_jobs' : [-1]
-}
-
-rf = RandomForestClassifier()
-rf_cv = GridSearchCV(estimator=rf, param_grid=parameters, cv=20).fit(X_train, y_train)
-print(colored('Tuned hyper parameters :\n{}'.format(rf_cv.best_params_), 'blue'))
-```
-
-```{python}
-rf = RandomForestClassifier(**rf_cv.best_params_).fit(X_train, y_train)
-
-y_pred_rf = rf.predict(X_test)
-
-rf_score = round(rf.score(X_test, y_test), 3)
-print(colored('RandomForestClassifier Score : {}'.format(rf_score), 'green'))
-```
-
-```{python}
-plot_result(y_pred_rf)
-```
-
-```{python}
-importances = rf.feature_importances_
-pd.Series(importances, index=X.columns).sort_values()
-```
-The best yet - it seems like the winner is the `RandomForest` model with score of **0.694**.
-
-## Conclusion
-
-Let's review the different models.
-```{python}
-result = pd.DataFrame({
-    'Algorithm' : ['RandomForestClassifier', 'XGBoostClassifier','LogisticRegression', 'SVCClassifier'],
-    'Score' : [rf_score, xgb_score, lr_score,  svc_score]
-})
-
-
-result.style.background_gradient()
-```
-
-So there you have it - sometimes it doesn't require the most complicated model. The `RandomForest` model works surprisingly well.
-
-
